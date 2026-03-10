@@ -4,5 +4,8 @@ library;
 export 'src/axis.dart';
 export 'src/backend.dart';
 export 'src/button.dart';
+export 'src/connection_event.dart';
+export 'src/gamepad.dart';
+export 'src/manager.dart';
 export 'src/raw_gamepad_info.dart';
 export 'src/state.dart';
