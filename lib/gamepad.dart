@@ -3,6 +3,7 @@ library;
 
 export 'src/axis.dart';
 export 'src/backend.dart';
+export 'src/dead_zone.dart';
 export 'src/button.dart';
 export 'src/connection_event.dart';
 export 'src/gamepad.dart';
