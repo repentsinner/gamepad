@@ -21,6 +21,11 @@ class DarwinBackend implements GamepadBackend {
 
   @override
   List<RawGamepadInfo> enumerate() {
+    // Tick the CFRunLoop so GameController.framework can discover
+    // controllers. Without this, CLI apps (no UI run loop) never
+    // see connected devices.
+    tickRunLoop();
+
     final pool = autoreleasePoolPush();
     try {
       final controllers = gcEnumerateControllers();

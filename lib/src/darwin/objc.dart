@@ -90,6 +90,41 @@ final void Function(Pointer<Void>) autoreleasePoolPop = _objcLib
         void Function(Pointer<Void>)>('objc_autoreleasePoolPop');
 
 // ---------------------------------------------------------------------------
+// CFRunLoop
+//
+// GameController.framework requires a run loop to discover controllers.
+// CLI apps have no active run loop, so we tick it manually.
+// ---------------------------------------------------------------------------
+
+final DynamicLibrary _cfLib = DynamicLibrary.open(
+  '/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation',
+);
+
+/// `CFRunLoopRef CFRunLoopGetMain(void)`
+final Pointer<Void> Function() cfRunLoopGetMain = _cfLib.lookupFunction<
+    Pointer<Void> Function(), Pointer<Void> Function()>('CFRunLoopGetMain');
+
+/// `SInt32 CFRunLoopRunInMode(CFStringRef mode, CFTimeInterval seconds,
+///     Boolean returnAfterSourceHandled)`
+final int Function(Pointer<Void>, double, bool) cfRunLoopRunInMode =
+    _cfLib.lookupFunction<
+        Int32 Function(Pointer<Void>, Double, Bool),
+        int Function(Pointer<Void>, double, bool)>('CFRunLoopRunInMode');
+
+/// `CFStringRef kCFRunLoopDefaultMode` — global constant.
+final Pointer<Void> kCFRunLoopDefaultMode = _cfLib
+    .lookup<Pointer<Void>>('kCFRunLoopDefaultMode')
+    .value;
+
+/// Ticks the main CFRunLoop briefly to let frameworks process events.
+///
+/// Without this, GameController.framework never discovers controllers
+/// in a CLI (no-UI) process.
+void tickRunLoop({double seconds = 0.001}) {
+  cfRunLoopRunInMode(kCFRunLoopDefaultMode, seconds, false);
+}
+
+// ---------------------------------------------------------------------------
 // Selector cache
 //
 // Native UTF-8 strings are allocated once. SEL pointers are resolved
