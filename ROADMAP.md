@@ -8,10 +8,14 @@ Each backend is independent once the interface exists. Ordered by
 developer access (macOS first — current dev platform), then by
 community reach.
 
-- **backend-macos-ios**: Bind `GameController.framework` via ffigen
-  ObjC mode. Implement hotplug via `NSNotificationCenter`. Wire
-  `GCExtendedGamepad` to canonical input model. Build hook for
-  framework linking. Covers §2.3, §2.5, §3.4 (GameController column).
+- **backend-macos-ios**: Bind `GameController.framework` via direct
+  `dart:ffi` ObjC runtime calls. Implement hotplug via
+  `NSNotificationCenter`. Wire `GCExtendedGamepad` to canonical input
+  model. No build hook needed — framework loaded at runtime. Covers
+  §2.3, §3.4 (GameController column).
+- **example-cli**: ANSI terminal example (`example/example.dart`)
+  that polls a connected gamepad and mirrors state in a fixed-position
+  box (modeled on mpg_pendant's example). Depends on backend-macos-ios.
 - **backend-linux**: Read `/dev/input/eventN` via evdev protocol
   (`struct input_event`, `ioctl` capability queries). Implement
   hotplug via `inotify`. Covers §2.2, §2.5, §3.4 (evdev column).
