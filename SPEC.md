@@ -74,10 +74,18 @@ No slot limit — the kernel assigns device nodes dynamically.
 
 ### 2.3 macOS / iOS — GameController.framework
 
-The package binds to Apple's `GameController.framework` via
-`dart:ffi` Objective-C interop (ffigen in ObjC mode). Key classes:
-`GCController`, `GCExtendedGamepad`, `GCControllerButtonInput`,
+The package binds to Apple's `GameController.framework` via direct
+`dart:ffi` calls to the Objective-C runtime (`objc_getClass`,
+`sel_registerName`, `objc_msgSend`). Key classes: `GCController`,
+`GCExtendedGamepad`, `GCControllerButtonInput`,
 `GCControllerAxisInput`.
+
+Direct ObjC runtime calls were chosen over `package:ffigen` because
+the API surface is small (~15 selectors). ffigen would add an LLVM
+build dependency and generate thousands of lines of bindings for a
+handful of property reads. No build hook or native compilation is
+needed — `GameController.framework` is loaded at runtime via
+`DynamicLibrary.open`.
 
 GameController.framework was chosen because Apple recommends it
 over IOKit HID for standard gamepads. It handles MFi, Xbox
