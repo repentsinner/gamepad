@@ -35,7 +35,7 @@ Status: complete
 
 ## 2. Platform Backends
 
-Status: not started
+Status: in progress
 
 Each platform uses the OS-provided gamepad API. No third-party
 native libraries are bundled or linked.
