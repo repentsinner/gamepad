@@ -22,7 +22,7 @@ CNC controllers, games, and robotics projects need a package that:
 
 ## 1. Package Identity
 
-Status: not started
+Status: complete
 
 - **Name:** `gamepad` (available on pub.dev).
 - **License:** BSD-3-Clause.
@@ -116,188 +116,65 @@ the generated JNI bindings.
 
 ## 3. Input Model
 
-Status: not started
+Status: complete
 
-The input model maps all modern standard gamepads (Xbox, PlayStation,
-Switch Pro, 8BitDo, etc.) onto a single canonical layout. Platform-
-specific identifiers are translated at the FFI boundary. Consumer
-code never sees platform strings.
+The input model maps all modern standard gamepads onto a single
+canonical layout. Platform-specific identifiers are translated at
+the FFI boundary. Consumer code never sees platform strings.
 
-### 3.1 Axes
+`GamepadAxis` (6 values): two stick X/Y pairs (-1.0–1.0) and two
+triggers (0.0–1.0). `GamepadButton` (15 values): a/b/x/y, bumpers,
+sticks, d-pad, start/select/guide. All digital.
 
-```dart
-enum GamepadAxis {
-  leftStickX,
-  leftStickY,
-  rightStickX,
-  rightStickY,
-  leftTrigger,
-  rightTrigger,
-}
-```
+`GamepadState` is an immutable value type carrying `axes` (Map) and
+`pressed` (Set), with equality semantics.
 
-Stick axes range from `-1.0` to `1.0`. Trigger axes range from
-`0.0` to `1.0`. Values are raw — no dead zone applied.
-
-Controllers with physically digital triggers (e.g., Nintendo Switch
-Pro, 8BitDo SN30 Pro) report `0.0` or `1.0` on the trigger axes.
-The API is uniform regardless of hardware capability.
-
-### 3.2 Buttons
-
-```dart
-enum GamepadButton {
-  a, b, x, y,
-  leftBumper, rightBumper,
-  leftStick, rightStick,
-  dpadUp, dpadDown, dpadLeft, dpadRight,
-  start, select, guide,
-}
-```
-
-All buttons are digital (pressed or not). Pressure-sensitive face
-buttons existed on DualShock 2/3 and original Xbox but no
-controller manufactured since 2013 ships them. The model does not
-include analog button pressure.
-
-### 3.3 State
-
-```dart
-class GamepadState {
-  final Map<GamepadAxis, double> axes;
-  final Set<GamepadButton> pressed;
-}
-```
-
-`GamepadState` is a snapshot of all inputs at the time of the most
-recent `poll()` call. It is an immutable value type.
+**Why Xbox layout convention:** de facto standard across SDL
+GameControllerDB, XInput, and W3C Gamepad API. Nintendo's swapped
+A/B labeling is a label difference, not positional — the package
+maps by physical position.
 
 ### 3.4 Platform Mapping
 
-Each backend translates platform-specific identifiers to the
-canonical enums:
-
-| Canonical | XInput | evdev | GameController | Android |
-|---|---|---|---|---|
-| `a` | `XINPUT_GAMEPAD_A` | `BTN_SOUTH` | `buttonA` | `KEYCODE_BUTTON_A` |
-| `leftStickX` | `sThumbLX` | `ABS_X` | `leftThumbstick.xAxis` | `AXIS_X` |
-| `leftTrigger` | `bLeftTrigger` | `ABS_Z` or `ABS_HAT2Y` | `leftTrigger` | `AXIS_LTRIGGER` |
-
-(Full mapping table maintained in source, not spec.)
-
-The mapping follows the Xbox physical layout convention (bottom
-button = A, right = B), which is the de facto standard in SDL's
-GameControllerDB, XInput, and the W3C Gamepad API's "standard"
-mapping. Nintendo's swapped A/B labeling is a label difference,
-not a physical position difference — the package maps by position.
+Each backend translates platform identifiers to canonical enums.
+Full mapping table maintained in source, not spec.
 
 ## 4. Multi-Controller Support
 
-Status: not started
+Status: complete
 
-### 4.1 GamepadManager
+`GamepadManager` is the entry point. It takes a `GamepadBackend`
+via constructor injection, enumerates controllers, tracks hotplug
+via a `connectionEvents` broadcast stream, and polls state.
 
-```dart
-class GamepadManager {
-  Map<int, Gamepad> get gamepads;
-  Stream<GamepadConnectionEvent> get connectionEvents;
-  void poll();
-  void dispose();
-}
-```
+`Gamepad` holds a platform-assigned `index` (stable per connection)
+and OS-reported `name`. `GamepadState` is updated on each `poll()`.
 
-`GamepadManager` is the entry point. It enumerates connected
-controllers, tracks hotplug events, and polls state.
+`GamepadConnectionEvent` is a sealed class with `GamepadConnected`
+and `GamepadDisconnected` subtypes.
 
-### 4.2 Gamepad
-
-```dart
-class Gamepad {
-  final int index;
-  final String name;
-  GamepadState get state;
-}
-```
-
-`index` is an integer assigned by the platform. On XInput, it
-maps to slot 0–3. On evdev, it derives from the device node
-number. On macOS/iOS, it maps to the `GCControllerPlayerIndex`
-ordinal. On Android, it comes from `InputDevice.getId()`.
-
-The index is stable for the lifetime of a connection. If a
-controller disconnects and reconnects, it may receive a
-different index.
-
-`name` is the human-readable device name reported by the OS
-(e.g., "Xbox Wireless Controller", "8BitDo SN30 Pro").
-
-### 4.3 Connection Events
-
-```dart
-sealed class GamepadConnectionEvent {
-  final Gamepad gamepad;
-}
-class GamepadConnected extends GamepadConnectionEvent {}
-class GamepadDisconnected extends GamepadConnectionEvent {}
-```
-
-The `connectionEvents` stream fires on hotplug. Consumers use it
-to update UI (player join/leave) or reassign controller bindings.
-
-### 4.4 Polling Model
-
-The package uses a polling model, not an event stream for input
-state. Consumers call `manager.poll()` on their frame tick or
-control loop, then read `gamepad.state`. This matches CNC jog
-loops and game update loops, which both want "current state now"
-semantics.
-
-Polling was chosen over event streaming because:
-
-- CNC jogging and game loops read state once per frame. Events
-  require buffering and deduplication to reach the same result.
-- XInput is inherently polling (no event callback). evdev is
-  inherently event-based. Polling normalizes the two.
-- Eliminates backpressure concerns on high-frequency analog
-  stick movement.
-
-Connection events remain event-driven because connect/disconnect
-is inherently asynchronous and infrequent.
+**Why polling over events:** CNC jog loops and game update loops
+want "current state now" semantics. XInput is inherently polling;
+evdev is event-based. Polling normalizes both. Connection events
+remain event-driven — connect/disconnect is asynchronous and
+infrequent.
 
 ## 5. Dead Zones
 
-Status: not started
+Status: complete
 
-No platform API applies dead zones. XInput, evdev,
-GameController.framework, and the Web Gamepad API all deliver raw
-normalized values. Dead zones are a user-space concern.
+`DeadZone` is a pure utility — it does not modify `GamepadState`.
+Consumers compose it into their input pipeline.
 
-The package provides a `DeadZone` utility as a convenience:
+`apply` performs axial dead zone with rescaling to eliminate the
+boundary discontinuity. `applyCircular` applies magnitude-based
+dead zone to an X/Y stick pair, preventing diagonal bias.
 
-```dart
-class DeadZone {
-  final double threshold;
-  const DeadZone(this.threshold);
-  double apply(double raw);
-  (double, double) applyCircular(double x, double y);
-}
-```
-
-`apply` clamps values within `±threshold` to zero and rescales the
-remaining range to `0.0–1.0` (or `-1.0–1.0` for stick axes) to
-eliminate the discontinuity at the dead zone boundary.
-
-`applyCircular` applies a magnitude-based dead zone to a stick's
-X/Y pair. Circular dead zones prevent diagonal bias that per-axis
-dead zones introduce. This is the approach Microsoft recommends in
-their XInput documentation.
-
-`DeadZone` is a pure function over values. It does not modify
-`GamepadState`. Consumers compose it into their input pipeline.
-
-Typical dead zone thresholds: 15–25% for sticks, 10–15% for
-triggers. XInput's suggested constants are ~24% (left stick),
-~27% (right stick), ~12% (triggers).
+**Why user-space:** No platform API applies dead zones. All deliver
+raw normalized values. **Why circular:** Per-axis dead zones create
+a diamond-shaped dead zone that biases diagonals. Microsoft's
+XInput docs recommend circular. Typical thresholds: 15–25% sticks,
+10–15% triggers.
 
 ## 6. Rumble / Haptics
 
