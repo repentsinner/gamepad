@@ -1,8 +1,7 @@
-/// Low-level ObjC runtime FFI bindings for dart:ffi.
+/// Low-level IOKit HID and CoreFoundation FFI bindings for dart:ffi.
 ///
-/// Loads `libobjc.A.dylib` and exposes typed `objc_msgSend` variants
-/// for the small set of return/argument combinations needed by the
-/// GameController.framework bindings.
+/// Provides typed function pointers for the IOKit HID Manager API and
+/// CoreFoundation helpers needed by the macOS/iOS gamepad backend.
 library;
 
 import 'dart:ffi';
@@ -10,145 +9,265 @@ import 'dart:ffi';
 import 'package:ffi/ffi.dart';
 
 // ---------------------------------------------------------------------------
-// Runtime library
+// Libraries
 // ---------------------------------------------------------------------------
 
-final DynamicLibrary _objcLib = DynamicLibrary.open('/usr/lib/libobjc.A.dylib');
-
-// ---------------------------------------------------------------------------
-// Core runtime functions
-// ---------------------------------------------------------------------------
-
-/// `Class objc_getClass(const char *name)`
-final Pointer<Void> Function(Pointer<Utf8>) objcGetClass = _objcLib
-    .lookupFunction<Pointer<Void> Function(Pointer<Utf8>),
-        Pointer<Void> Function(Pointer<Utf8>)>('objc_getClass');
-
-/// `SEL sel_registerName(const char *str)`
-final Pointer<Void> Function(Pointer<Utf8>) selRegisterName = _objcLib
-    .lookupFunction<Pointer<Void> Function(Pointer<Utf8>),
-        Pointer<Void> Function(Pointer<Utf8>)>('sel_registerName');
-
-// ---------------------------------------------------------------------------
-// objc_msgSend variants
-//
-// Each variant corresponds to a specific (return type, argument list)
-// combination used by the GameController bindings.
-// ---------------------------------------------------------------------------
-
-/// `id objc_msgSend(id self, SEL op)` — property getters returning objects.
-final Pointer<Void> Function(Pointer<Void>, Pointer<Void>) msgSendPtr =
-    _objcLib.lookupFunction<
-        Pointer<Void> Function(Pointer<Void>, Pointer<Void>),
-        Pointer<Void> Function(
-            Pointer<Void>, Pointer<Void>)>('objc_msgSend');
-
-/// `id objc_msgSend(id self, SEL op, NSUInteger index)` — `objectAtIndex:`.
-final Pointer<Void> Function(Pointer<Void>, Pointer<Void>, int)
-    msgSendPtrInt = _objcLib.lookupFunction<
-        Pointer<Void> Function(Pointer<Void>, Pointer<Void>, UnsignedLong),
-        Pointer<Void> Function(
-            Pointer<Void>, Pointer<Void>, int)>('objc_msgSend');
-
-/// `NSUInteger objc_msgSend(id self, SEL op)` — `count`.
-final int Function(Pointer<Void>, Pointer<Void>) msgSendInt = _objcLib
-    .lookupFunction<UnsignedLong Function(Pointer<Void>, Pointer<Void>),
-        int Function(Pointer<Void>, Pointer<Void>)>('objc_msgSend');
-
-/// `float objc_msgSend(id self, SEL op)` — axis `value`.
-///
-/// On arm64 Darwin, float returns use `objc_msgSend` (not the fpret
-/// variant, which is x86_64-only for `long double`).
-final double Function(Pointer<Void>, Pointer<Void>) msgSendFloat = _objcLib
-    .lookupFunction<Float Function(Pointer<Void>, Pointer<Void>),
-        double Function(Pointer<Void>, Pointer<Void>)>('objc_msgSend');
-
-/// `BOOL objc_msgSend(id self, SEL op)` — button `isPressed`.
-final bool Function(Pointer<Void>, Pointer<Void>) msgSendBool = _objcLib
-    .lookupFunction<Bool Function(Pointer<Void>, Pointer<Void>),
-        bool Function(Pointer<Void>, Pointer<Void>)>('objc_msgSend');
-
-/// `const char* objc_msgSend(id self, SEL op)` — `UTF8String`.
-final Pointer<Utf8> Function(Pointer<Void>, Pointer<Void>) msgSendUtf8 =
-    _objcLib.lookupFunction<
-        Pointer<Utf8> Function(Pointer<Void>, Pointer<Void>),
-        Pointer<Utf8> Function(
-            Pointer<Void>, Pointer<Void>)>('objc_msgSend');
-
-// ---------------------------------------------------------------------------
-// Autorelease pool
-// ---------------------------------------------------------------------------
-
-/// `void *objc_autoreleasePoolPush(void)`
-final Pointer<Void> Function() autoreleasePoolPush = _objcLib.lookupFunction<
-    Pointer<Void> Function(), Pointer<Void> Function()>(
-    'objc_autoreleasePoolPush');
-
-/// `void objc_autoreleasePoolPop(void *pool)`
-final void Function(Pointer<Void>) autoreleasePoolPop = _objcLib
-    .lookupFunction<Void Function(Pointer<Void>),
-        void Function(Pointer<Void>)>('objc_autoreleasePoolPop');
-
-// ---------------------------------------------------------------------------
-// CFRunLoop
-//
-// GameController.framework requires a run loop to discover controllers.
-// CLI apps have no active run loop, so we tick it manually.
-// ---------------------------------------------------------------------------
+final DynamicLibrary _iokitLib =
+    DynamicLibrary.open('/System/Library/Frameworks/IOKit.framework/IOKit');
 
 final DynamicLibrary _cfLib = DynamicLibrary.open(
   '/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation',
 );
 
-/// `CFRunLoopRef CFRunLoopGetMain(void)`
-final Pointer<Void> Function() cfRunLoopGetMain = _cfLib.lookupFunction<
-    Pointer<Void> Function(), Pointer<Void> Function()>('CFRunLoopGetMain');
+// ---------------------------------------------------------------------------
+// CoreFoundation helpers
+// ---------------------------------------------------------------------------
+
+/// `CFRunLoopRef CFRunLoopGetCurrent(void)`
+final Pointer<Void> Function() cfRunLoopGetCurrent = _cfLib.lookupFunction<
+    Pointer<Void> Function(), Pointer<Void> Function()>('CFRunLoopGetCurrent');
 
 /// `SInt32 CFRunLoopRunInMode(CFStringRef mode, CFTimeInterval seconds,
 ///     Boolean returnAfterSourceHandled)`
 final int Function(Pointer<Void>, double, bool) cfRunLoopRunInMode =
-    _cfLib.lookupFunction<
-        Int32 Function(Pointer<Void>, Double, Bool),
+    _cfLib.lookupFunction<Int32 Function(Pointer<Void>, Double, Bool),
         int Function(Pointer<Void>, double, bool)>('CFRunLoopRunInMode');
 
-/// `CFStringRef kCFRunLoopDefaultMode` — global constant.
-final Pointer<Void> kCFRunLoopDefaultMode = _cfLib
-    .lookup<Pointer<Void>>('kCFRunLoopDefaultMode')
-    .value;
+/// `CFStringRef kCFRunLoopDefaultMode`
+final Pointer<Void> kCFRunLoopDefaultMode =
+    _cfLib.lookup<Pointer<Void>>('kCFRunLoopDefaultMode').value;
 
-/// Ticks the main CFRunLoop briefly to let frameworks process events.
-///
-/// Without this, GameController.framework never discovers controllers
-/// in a CLI (no-UI) process.
-void tickRunLoop({double seconds = 0.001}) {
-  cfRunLoopRunInMode(kCFRunLoopDefaultMode, seconds, false);
-}
+/// `CFMutableDictionaryRef CFDictionaryCreateMutable(...)`
+final Pointer<Void> Function(
+        Pointer<Void>, int, Pointer<Void>, Pointer<Void>)
+    cfDictionaryCreateMutable = _cfLib.lookupFunction<
+        Pointer<Void> Function(
+            Pointer<Void>, IntPtr, Pointer<Void>, Pointer<Void>),
+        Pointer<Void> Function(Pointer<Void>, int, Pointer<Void>,
+            Pointer<Void>)>('CFDictionaryCreateMutable');
+
+/// `void CFDictionarySetValue(CFMutableDictionaryRef, key, value)`
+final void Function(Pointer<Void>, Pointer<Void>, Pointer<Void>)
+    cfDictionarySetValue = _cfLib.lookupFunction<
+        Void Function(Pointer<Void>, Pointer<Void>, Pointer<Void>),
+        void Function(Pointer<Void>, Pointer<Void>,
+            Pointer<Void>)>('CFDictionarySetValue');
+
+/// `CFNumberRef CFNumberCreate(allocator, type, valuePtr)`
+final Pointer<Void> Function(Pointer<Void>, int, Pointer<Void>)
+    cfNumberCreate = _cfLib.lookupFunction<
+        Pointer<Void> Function(Pointer<Void>, Int32, Pointer<Void>),
+        Pointer<Void> Function(
+            Pointer<Void>, int, Pointer<Void>)>('CFNumberCreate');
+
+/// `CFArrayRef CFArrayCreate(allocator, values, count, callbacks)`
+final Pointer<Void> Function(
+        Pointer<Void>, Pointer<Pointer<Void>>, int, Pointer<Void>)
+    cfArrayCreate = _cfLib.lookupFunction<
+        Pointer<Void> Function(
+            Pointer<Void>, Pointer<Pointer<Void>>, IntPtr, Pointer<Void>),
+        Pointer<Void> Function(Pointer<Void>, Pointer<Pointer<Void>>, int,
+            Pointer<Void>)>('CFArrayCreate');
+
+/// `CFIndex CFArrayGetCount(CFArrayRef)`
+final int Function(Pointer<Void>) cfArrayGetCount = _cfLib.lookupFunction<
+    IntPtr Function(Pointer<Void>),
+    int Function(Pointer<Void>)>('CFArrayGetCount');
+
+/// `const void* CFArrayGetValueAtIndex(CFArrayRef, CFIndex)`
+final Pointer<Void> Function(Pointer<Void>, int) cfArrayGetValueAtIndex =
+    _cfLib.lookupFunction<Pointer<Void> Function(Pointer<Void>, IntPtr),
+        Pointer<Void> Function(Pointer<Void>, int)>('CFArrayGetValueAtIndex');
+
+/// `CFIndex CFSetGetCount(CFSetRef)`
+final int Function(Pointer<Void>) cfSetGetCount = _cfLib.lookupFunction<
+    IntPtr Function(Pointer<Void>),
+    int Function(Pointer<Void>)>('CFSetGetCount');
+
+/// `void CFSetGetValues(CFSetRef, const void **values)`
+final void Function(Pointer<Void>, Pointer<Pointer<Void>>) cfSetGetValues =
+    _cfLib.lookupFunction<
+        Void Function(Pointer<Void>, Pointer<Pointer<Void>>),
+        void Function(
+            Pointer<Void>, Pointer<Pointer<Void>>)>('CFSetGetValues');
+
+/// `void CFRelease(CFTypeRef)`
+final void Function(Pointer<Void>) cfRelease = _cfLib.lookupFunction<
+    Void Function(Pointer<Void>), void Function(Pointer<Void>)>('CFRelease');
+
+/// `CFStringRef CFStringCreateWithCString(allocator, cStr, encoding)`
+final Pointer<Void> Function(Pointer<Void>, Pointer<Utf8>, int)
+    cfStringCreateWithCString = _cfLib.lookupFunction<
+        Pointer<Void> Function(Pointer<Void>, Pointer<Utf8>, Uint32),
+        Pointer<Void> Function(
+            Pointer<Void>, Pointer<Utf8>, int)>('CFStringCreateWithCString');
+
+/// `Boolean CFStringGetCString(str, buffer, bufferSize, encoding)`
+final bool Function(Pointer<Void>, Pointer<Utf8>, int, int)
+    cfStringGetCString = _cfLib.lookupFunction<
+        Bool Function(Pointer<Void>, Pointer<Utf8>, IntPtr, Uint32),
+        bool Function(
+            Pointer<Void>, Pointer<Utf8>, int, int)>('CFStringGetCString');
+
+/// Callback struct pointers for CF collections.
+final Pointer<Void> kCFTypeDictionaryKeyCallBacks =
+    _cfLib.lookup('kCFTypeDictionaryKeyCallBacks');
+final Pointer<Void> kCFTypeDictionaryValueCallBacks =
+    _cfLib.lookup('kCFTypeDictionaryValueCallBacks');
+final Pointer<Void> kCFTypeArrayCallBacks =
+    _cfLib.lookup('kCFTypeArrayCallBacks');
+
+/// kCFStringEncodingUTF8 = 0x08000100
+const int kCFStringEncodingUTF8 = 0x08000100;
+
+/// kCFNumberSInt32Type = 3
+const int kCFNumberSInt32Type = 3;
 
 // ---------------------------------------------------------------------------
-// Selector cache
-//
-// Native UTF-8 strings are allocated once. SEL pointers are resolved
-// lazily on first access and cached for the process lifetime.
+// IOKit HID
 // ---------------------------------------------------------------------------
 
-/// Registers a selector and caches the result.
-Pointer<Void> sel(String name) {
-  return _selCache.putIfAbsent(name, () {
-    final nativeName = name.toNativeUtf8();
-    return selRegisterName(nativeName);
-    // nativeName is intentionally leaked — selectors are process-lifetime.
-  });
+/// `IOHIDManagerRef IOHIDManagerCreate(allocator, options)`
+final Pointer<Void> Function(Pointer<Void>, int) ioHIDManagerCreate =
+    _iokitLib.lookupFunction<Pointer<Void> Function(Pointer<Void>, Uint32),
+        Pointer<Void> Function(Pointer<Void>, int)>('IOHIDManagerCreate');
+
+/// `void IOHIDManagerSetDeviceMatchingMultiple(manager, multiple)`
+final void Function(Pointer<Void>, Pointer<Void>)
+    ioHIDManagerSetDeviceMatchingMultiple = _iokitLib.lookupFunction<
+        Void Function(Pointer<Void>, Pointer<Void>),
+        void Function(
+            Pointer<Void>, Pointer<Void>)>(
+        'IOHIDManagerSetDeviceMatchingMultiple');
+
+/// `void IOHIDManagerScheduleWithRunLoop(manager, runLoop, runLoopMode)`
+final void Function(Pointer<Void>, Pointer<Void>, Pointer<Void>)
+    ioHIDManagerScheduleWithRunLoop = _iokitLib.lookupFunction<
+        Void Function(Pointer<Void>, Pointer<Void>, Pointer<Void>),
+        void Function(Pointer<Void>, Pointer<Void>,
+            Pointer<Void>)>('IOHIDManagerScheduleWithRunLoop');
+
+/// `IOReturn IOHIDManagerOpen(manager, options)`
+final int Function(Pointer<Void>, int) ioHIDManagerOpen = _iokitLib
+    .lookupFunction<Int32 Function(Pointer<Void>, Uint32),
+        int Function(Pointer<Void>, int)>('IOHIDManagerOpen');
+
+/// `IOReturn IOHIDManagerClose(manager, options)`
+final int Function(Pointer<Void>, int) ioHIDManagerClose = _iokitLib
+    .lookupFunction<Int32 Function(Pointer<Void>, Uint32),
+        int Function(Pointer<Void>, int)>('IOHIDManagerClose');
+
+/// `CFSetRef IOHIDManagerCopyDevices(manager)`
+final Pointer<Void> Function(Pointer<Void>) ioHIDManagerCopyDevices =
+    _iokitLib.lookupFunction<Pointer<Void> Function(Pointer<Void>),
+        Pointer<Void> Function(Pointer<Void>)>('IOHIDManagerCopyDevices');
+
+/// `CFArrayRef IOHIDDeviceCopyMatchingElements(device, matching, options)`
+final Pointer<Void> Function(Pointer<Void>, Pointer<Void>, int)
+    ioHIDDeviceCopyMatchingElements = _iokitLib.lookupFunction<
+        Pointer<Void> Function(Pointer<Void>, Pointer<Void>, Uint32),
+        Pointer<Void> Function(
+            Pointer<Void>, Pointer<Void>, int)>(
+        'IOHIDDeviceCopyMatchingElements');
+
+/// `CFTypeRef IOHIDDeviceGetProperty(device, key)`
+final Pointer<Void> Function(Pointer<Void>, Pointer<Void>)
+    ioHIDDeviceGetProperty = _iokitLib.lookupFunction<
+        Pointer<Void> Function(Pointer<Void>, Pointer<Void>),
+        Pointer<Void> Function(
+            Pointer<Void>, Pointer<Void>)>('IOHIDDeviceGetProperty');
+
+/// `IOReturn IOHIDDeviceGetValue(device, element, pValue)`
+final int Function(Pointer<Void>, Pointer<Void>, Pointer<Pointer<Void>>)
+    ioHIDDeviceGetValue = _iokitLib.lookupFunction<
+        Int32 Function(
+            Pointer<Void>, Pointer<Void>, Pointer<Pointer<Void>>),
+        int Function(Pointer<Void>, Pointer<Void>,
+            Pointer<Pointer<Void>>)>('IOHIDDeviceGetValue');
+
+/// `uint32_t IOHIDElementGetUsagePage(element)`
+final int Function(Pointer<Void>) ioHIDElementGetUsagePage = _iokitLib
+    .lookupFunction<Uint32 Function(Pointer<Void>),
+        int Function(Pointer<Void>)>('IOHIDElementGetUsagePage');
+
+/// `uint32_t IOHIDElementGetUsage(element)`
+final int Function(Pointer<Void>) ioHIDElementGetUsage = _iokitLib
+    .lookupFunction<Uint32 Function(Pointer<Void>),
+        int Function(Pointer<Void>)>('IOHIDElementGetUsage');
+
+/// `IOHIDElementType IOHIDElementGetType(element)`
+final int Function(Pointer<Void>) ioHIDElementGetType = _iokitLib
+    .lookupFunction<Uint32 Function(Pointer<Void>),
+        int Function(Pointer<Void>)>('IOHIDElementGetType');
+
+/// `CFIndex IOHIDElementGetLogicalMin(element)`
+final int Function(Pointer<Void>) ioHIDElementGetLogicalMin = _iokitLib
+    .lookupFunction<IntPtr Function(Pointer<Void>),
+        int Function(Pointer<Void>)>('IOHIDElementGetLogicalMin');
+
+/// `CFIndex IOHIDElementGetLogicalMax(element)`
+final int Function(Pointer<Void>) ioHIDElementGetLogicalMax = _iokitLib
+    .lookupFunction<IntPtr Function(Pointer<Void>),
+        int Function(Pointer<Void>)>('IOHIDElementGetLogicalMax');
+
+/// `CFIndex IOHIDValueGetIntegerValue(value)`
+final int Function(Pointer<Void>) ioHIDValueGetIntegerValue = _iokitLib
+    .lookupFunction<IntPtr Function(Pointer<Void>),
+        int Function(Pointer<Void>)>('IOHIDValueGetIntegerValue');
+
+// ---------------------------------------------------------------------------
+// HID constants
+// ---------------------------------------------------------------------------
+
+/// Generic Desktop usage page.
+const int kHIDUsagePageGenericDesktop = 0x01;
+
+/// Button usage page.
+const int kHIDUsagePageButton = 0x09;
+
+// Generic Desktop usages
+const int kHIDUsageJoystick = 0x04;
+const int kHIDUsageGamePad = 0x05;
+const int kHIDUsageMultiAxisController = 0x08;
+const int kHIDUsageX = 0x30;
+const int kHIDUsageY = 0x31;
+const int kHIDUsageZ = 0x32;
+const int kHIDUsageRx = 0x33;
+const int kHIDUsageRy = 0x34;
+const int kHIDUsageRz = 0x35;
+const int kHIDUsageHatSwitch = 0x39;
+
+/// IOHIDElement input types.
+const int kIOHIDElementTypeInputMisc = 1;
+const int kIOHIDElementTypeInputButton = 2;
+const int kIOHIDElementTypeInputAxis = 3;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Creates a CFString from a Dart string. Caller must CFRelease.
+Pointer<Void> createCFString(String s) {
+  final native = s.toNativeUtf8();
+  final result = cfStringCreateWithCString(nullptr, native, kCFStringEncodingUTF8);
+  calloc.free(native);
+  return result;
 }
 
-final Map<String, Pointer<Void>> _selCache = {};
-
-/// Looks up an ObjC class by name. Returns `nullptr` if not found.
-Pointer<Void> cls(String name) {
-  return _clsCache.putIfAbsent(name, () {
-    final nativeName = name.toNativeUtf8();
-    return objcGetClass(nativeName);
-    // nativeName is intentionally leaked — class names are process-lifetime.
-  });
+/// Reads a CFStringRef into a Dart string. Returns null if conversion fails.
+String? cfStringToDart(Pointer<Void> cfStr) {
+  if (cfStr == nullptr) return null;
+  final buf = calloc<Uint8>(256).cast<Utf8>();
+  final ok = cfStringGetCString(cfStr, buf, 256, kCFStringEncodingUTF8);
+  final result = ok ? buf.toDartString() : null;
+  calloc.free(buf);
+  return result;
 }
 
-final Map<String, Pointer<Void>> _clsCache = {};
+/// Creates a CFNumber from a 32-bit integer. Caller must CFRelease.
+Pointer<Void> createCFNumber(int value) {
+  final ptr = calloc<Int32>()..value = value;
+  final result = cfNumberCreate(nullptr, kCFNumberSInt32Type, ptr.cast());
+  calloc.free(ptr);
+  return result;
+}

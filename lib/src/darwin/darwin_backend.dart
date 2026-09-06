@@ -1,7 +1,7 @@
-/// macOS/iOS [GamepadBackend] implementation using GameController.framework.
+/// macOS/iOS [GamepadBackend] implementation using IOKit HID.
 ///
-/// Uses direct ObjC runtime FFI calls — no ffigen, no build hook.
-/// The framework is loaded at runtime via [DynamicLibrary.open].
+/// Uses IOKit HID Manager to discover and read gamepad-class devices.
+/// Works in CLI apps without an app bundle or Info.plist.
 library;
 
 import 'dart:ffi';
@@ -9,54 +9,45 @@ import 'dart:ffi';
 import '../backend.dart';
 import '../raw_gamepad_info.dart';
 import '../state.dart';
-import 'game_controller.dart';
+import 'iokit_gamepad.dart';
 import 'objc.dart';
 
-/// GameController.framework backend for macOS and iOS.
+/// IOKit HID backend for macOS and iOS.
 ///
-/// Polls `[GCController controllers]` on each [enumerate] call.
-/// Caches controller pointers by index for [poll].
+/// Creates an IOHIDManager on construction. Polls connected devices
+/// on each [enumerate] call and caches device pointers for [poll].
 class DarwinBackend implements GamepadBackend {
-  final Map<int, Pointer<Void>> _controllers = {};
+  final Pointer<Void> _manager;
+  final Map<int, Pointer<Void>> _devices = {};
+
+  DarwinBackend() : _manager = createHIDManager();
 
   @override
   List<RawGamepadInfo> enumerate() {
-    // Tick the CFRunLoop so GameController.framework can discover
-    // controllers. Without this, CLI apps (no UI run loop) never
-    // see connected devices.
-    tickRunLoop();
+    // Tick the run loop so IOKit processes connect/disconnect events.
+    cfRunLoopRunInMode(kCFRunLoopDefaultMode, 0.001, false);
 
-    final pool = autoreleasePoolPush();
-    try {
-      final controllers = gcEnumerateControllers();
-      _controllers.clear();
+    final devices = hidEnumerateDevices(_manager);
+    _devices.clear();
 
-      final results = <RawGamepadInfo>[];
-      for (final c in controllers) {
-        _controllers[c.index] = c.ptr;
-        results.add(RawGamepadInfo(index: c.index, name: c.name));
-      }
-      return results;
-    } finally {
-      autoreleasePoolPop(pool);
+    final results = <RawGamepadInfo>[];
+    for (final d in devices) {
+      _devices[d.index] = d.device;
+      results.add(RawGamepadInfo(index: d.index, name: d.name));
     }
+    return results;
   }
 
   @override
   GamepadState poll(int index) {
-    final controller = _controllers[index];
-    if (controller == null) return GamepadState();
-
-    final pool = autoreleasePoolPush();
-    try {
-      return gcReadState(controller);
-    } finally {
-      autoreleasePoolPop(pool);
-    }
+    final device = _devices[index];
+    if (device == null) return GamepadState();
+    return hidReadState(device);
   }
 
   @override
   void dispose() {
-    _controllers.clear();
+    _devices.clear();
+    closeHIDManager(_manager);
   }
 }
