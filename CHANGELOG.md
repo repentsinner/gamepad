@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- macOS/iOS backend via direct `dart:ffi` ObjC runtime calls to
-  GameController.framework (`DarwinBackend`).
+- macOS/iOS backend via direct `dart:ffi` calls to the IOKit HID
+  Manager (`DarwinBackend`). Not yet verified against a physical
+  controller.
 - ANSI terminal example (`example/gamepad_example.dart`) polling a
   connected gamepad at ~30 Hz.

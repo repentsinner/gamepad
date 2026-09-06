@@ -72,31 +72,35 @@ Hotplug detection: `inotify` watch on `/dev/input/` for
 
 No slot limit — the kernel assigns device nodes dynamically.
 
-### 2.3 macOS / iOS — GameController.framework
+### 2.3 macOS / iOS — IOKit HID
 
-The package binds to Apple's `GameController.framework` via direct
-`dart:ffi` calls to the Objective-C runtime (`objc_getClass`,
-`sel_registerName`, `objc_msgSend`). Key classes: `GCController`,
-`GCExtendedGamepad`, `GCControllerButtonInput`,
-`GCControllerAxisInput`.
+The package binds to IOKit's HID Manager via direct `dart:ffi`
+calls. It opens an `IOHIDManager`, matches gamepad-class devices by
+HID usage page, and reads their input elements.
 
-Direct ObjC runtime calls were chosen over `package:ffigen` because
-the API surface is small (~15 selectors). ffigen would add an LLVM
-build dependency and generate thousands of lines of bindings for a
-handful of property reads. No build hook or native compilation is
-needed — `GameController.framework` is loaded at runtime via
-`DynamicLibrary.open`.
+Direct FFI was chosen over `package:ffigen` because the API surface
+is small (~15 functions). ffigen would add an LLVM build dependency
+and generate thousands of lines of bindings for a handful of calls.
+No build hook or native compilation is needed — IOKit and
+CoreFoundation load at runtime via `DynamicLibrary.open`.
 
-GameController.framework was chosen because Apple recommends it
-over IOKit HID for standard gamepads. It handles MFi, Xbox
-Wireless, DualShock 4, and DualSense controllers. Bluetooth
-pairing and input mapping are managed by the OS.
+IOKit HID replaced GameController.framework, which Apple recommends
+for standard gamepads. GameController expects an app bundle with an
+Info.plist and a running UI run loop. A plain `dart run` process has
+neither, and `[GCController controllers]` stays empty regardless of
+how the run loop is ticked. `tool/debug_gc.dart` reproduces this.
+IOKit imposes no bundle requirement and works from a CLI process.
 
-Hotplug detection: `NSNotificationCenter` observing
-`.GCControllerDidConnect` / `.GCControllerDidDisconnect`.
+The cost is mapping. GameController normalizes MFi, Xbox Wireless,
+DualShock 4, and DualSense layouts onto one profile. IOKit reports
+raw HID usages, so per-device mapping becomes this package's
+responsibility rather than the OS's. See §3.4 and §7.
 
-macOS and iOS share the same framework and the same Dart binding
-code.
+Hotplug detection: `IOHIDManagerRegisterDeviceMatchingCallback` and
+`IOHIDManagerRegisterDeviceRemovalCallback`, serviced by ticking the
+run loop.
+
+macOS and iOS share the same API and the same Dart binding code.
 
 ### 2.4 Android — JNI via jnigen
 
@@ -116,8 +120,8 @@ Hotplug detection: `InputManager.registerInputDeviceListener`.
 ### 2.5 Build Hooks
 
 Each platform backend compiles or links via `hook/build.dart`.
-XInput, evdev, and GameController.framework are system-provided —
-no native source compilation is needed for those targets. The
+XInput, evdev, and IOKit HID are system-provided — no native
+source compilation is needed for those targets. The
 build hook handles platform detection and library resolution.
 Android's jnigen output may require build hook integration for
 the generated JNI bindings.
@@ -204,10 +208,10 @@ magnitudes. Platform complexity varies:
 - **XInput:** One function call (`XInputSetState`), two `u16` fields.
 - **evdev:** Upload `FF_RUMBLE` effect via `ioctl`, play via `write`.
   More ceremony but the same two-magnitude model.
-- **GameController.framework:** Requires Core Haptics
-  (`CHHapticEngine`). The API models rich haptic patterns; the
-  package maps the two-motor abstraction onto continuous haptic
-  events. This is the most complex backend.
+- **IOKit HID:** Rumble goes out as an HID output report, whose
+  layout is device-specific. Unlike Core Haptics under
+  GameController, no OS-level abstraction exists, so each supported
+  device needs its own report format.
 - **Android:** `Vibrator` service or `InputDevice.getVibratorManager()`.
 
 Rumble is not a v1 requirement. The API surface is specified here
@@ -235,9 +239,9 @@ management. It does not provide:
 - **Controller database / mapping overrides.** SDL ships a
   community-maintained controller database for devices that don't
   self-identify correctly. The package relies on OS-level mapping
-  (which is correct for GameController.framework, XInput, and
-  standard evdev). If edge cases arise, a mapping override
-  mechanism can be added later.
+  (which is correct for XInput and standard evdev). IOKit HID
+  reports raw usages and supplies no such mapping, so macOS and iOS
+  need a per-device table. Scope of that table is unresolved.
 
 ## 8. Web (Deferred)
 
